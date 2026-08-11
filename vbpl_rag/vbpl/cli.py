@@ -74,14 +74,24 @@ def cmd_probe(args) -> None:
             print(f"  {r['item_id']}  {r['tieu_de'][:90]}")
 
 
+def _backend(args, client):
+    if not getattr(args, "api", False):
+        return None
+    from .api import JsonSearchBackend
+
+    return JsonSearchBackend(client)
+
+
 def cmd_crawl(args) -> None:
     store = Store(args.db)
+    client = _client(args)
     stats = crawl(
         store,
-        _client(args),
+        client,
         _filters(args),
         max_pages=args.max_pages,
         resume=not args.no_resume,
+        backend=_backend(args, client),
     )
     print(json.dumps(stats, ensure_ascii=False, indent=2))
     print(f"Tổng văn bản trong DB: {store.count()}")
@@ -122,6 +132,7 @@ def main() -> None:
     sc = sub.add_parser("crawl", help="crawl hàng loạt")
     sc.add_argument("--max-pages", type=int)
     sc.add_argument("--no-resume", action="store_true")
+    sc.add_argument("--api", action="store_true", help="dùng endpoint JSON thay vì scrape HTML")
     _add_filter_args(sc)
     sc.set_defaults(func=cmd_crawl)
 

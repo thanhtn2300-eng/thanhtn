@@ -51,6 +51,23 @@ python -m vbpl.cli crawl \
 hoặc eff-status không hợp lệ bị chặn ngay lúc dựng bộ lọc, không đợi tới lúc
 request trả về kết quả rỗng khó hiểu.
 
+### Dùng endpoint JSON thay vì scrape HTML
+
+```bash
+export VBPL_API_BASE="https://<host>/<đường-dẫn-tìm-kiếm>"   # bắt buộc
+export VBPL_API_KEY="<key 40 ký tự>"                          # bắt buộc
+export VBPL_API_AUTH="bearer"      # bearer | x-api-key | query | path
+export VBPL_API_METHOD="POST"      # POST | GET
+
+python -m vbpl.cli crawl --api --keyword "đầu tư công" --eff-status con-hieu-luc
+```
+
+Key đọc từ biến môi trường, **không commit vào repo**. Cách truyền key và schema
+response chưa xác minh được với API thật, nên `--api` thử lần lượt các khoá phổ
+biến (`items/data/results`, `ItemID/id`, `totalCount/total`) và báo rõ khoá nào
+có trong response nếu không khớp — đổi `VBPL_API_AUTH` là thử được kiểu khác mà
+không phải sửa code.
+
 Crawl → xuất dữ liệu → tạo chunk:
 
 ```bash

@@ -41,19 +41,33 @@ def crawl(
     filters: SearchFilters,
     max_pages: int | None = None,
     resume: bool = True,
+    backend=None,
 ) -> dict:
-    """Crawl theo bộ lọc tìm kiếm. Trả về thống kê."""
+    """Crawl theo bộ lọc tìm kiếm.
+
+    `backend=None` -> scrape trang HTML tìm kiếm.
+    `backend=JsonSearchBackend(...)` -> gọi endpoint JSON.
+    Hai đường chỉ khác ở bước lấy danh sách; phần tải chi tiết dùng chung.
+    """
     stats = {"pages": 0, "found": 0, "saved": 0, "skipped": 0, "failed": 0}
 
-    first_html = client.get(search_url(filters.at_page(1))).text
-    total_pages = parse_total_pages(first_html)
+    if backend is None:
+        first_html = client.get(search_url(filters.at_page(1))).text
+        total_pages = parse_total_pages(first_html)
+    else:
+        first_results, total = backend.search(filters.at_page(1))
+        total_pages = -(-total // filters.row_count) if total else (1 if not first_results else 10**6)
+
     if max_pages:
         total_pages = min(total_pages, max_pages)
     log.info("Sẽ duyệt %d trang kết quả", total_pages)
 
     for page in range(1, total_pages + 1):
-        html = first_html if page == 1 else client.get(search_url(filters.at_page(page))).text
-        results = parse_search_results(html)
+        if backend is None:
+            html = first_html if page == 1 else client.get(search_url(filters.at_page(page))).text
+            results = parse_search_results(html)
+        else:
+            results = first_results if page == 1 else backend.search(filters.at_page(page))[0]
         stats["pages"] += 1
         stats["found"] += len(results)
         if not results:
