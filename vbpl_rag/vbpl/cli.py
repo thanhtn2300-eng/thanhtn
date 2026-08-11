@@ -10,12 +10,45 @@ from pathlib import Path
 from .chunk import chunk_document
 from .client import ClientConfig, VbplClient
 from .crawl import crawl, fetch_document, search_url
+from .filters import EFF_STATUS, SearchFilters
 from .parser import parse_search_results, parse_total_pages
 from .store import Store
 
 
 def _client(args) -> VbplClient:
     return VbplClient(ClientConfig(delay=args.delay))
+
+
+def _ids(value: str) -> list[str]:
+    return [v.strip() for v in (value or "").split(",") if v.strip()]
+
+
+def _filters(args) -> SearchFilters:
+    return SearchFilters(
+        keyword=getattr(args, "keyword", "") or "",
+        doc_type=getattr(args, "doc_type", None),
+        agency_ids=_ids(getattr(args, "agency_ids", "")),
+        field_type_ids=_ids(getattr(args, "field_type_ids", "")),
+        eff_status=getattr(args, "eff_status", None),
+        from_date=getattr(args, "from_date", "") or "",
+        to_date=getattr(args, "to_date", "") or "",
+        row_count=getattr(args, "row_count", 20),
+    )
+
+
+def _add_filter_args(parser) -> None:
+    parser.add_argument("--keyword", default="")
+    parser.add_argument("--doc-type", help="id loại văn bản (Luật, Nghị định, Thông tư...)")
+    parser.add_argument("--agency-ids", default="", help="id cơ quan ban hành, phân tách bằng dấu phẩy")
+    parser.add_argument("--field-type-ids", default="", help="id lĩnh vực, phân tách bằng dấu phẩy")
+    parser.add_argument(
+        "--eff-status",
+        choices=sorted(EFF_STATUS),
+        help="trạng thái hiệu lực — nên đặt 'con-hieu-luc' khi build RAG",
+    )
+    parser.add_argument("--from-date", default="", help="dd/mm/yyyy")
+    parser.add_argument("--to-date", default="", help="dd/mm/yyyy")
+    parser.add_argument("--row-count", type=int, default=20)
 
 
 def cmd_probe(args) -> None:
@@ -27,7 +60,10 @@ def cmd_probe(args) -> None:
         data["noi_dung"] = data["noi_dung"][:1500] + " ...(cắt bớt)"
         print(json.dumps(data, ensure_ascii=False, indent=2))
     else:
-        html = client.get(search_url(1, args.row_count, Keyword=args.keyword)).text
+        filters = _filters(args)
+        url = search_url(filters)
+        print(f"URL: {url}")
+        html = client.get(url).text
         if args.dump_html:
             Path(args.dump_html).write_text(html, encoding="utf-8")
             print(f"Đã ghi HTML -> {args.dump_html}")
@@ -43,12 +79,9 @@ def cmd_crawl(args) -> None:
     stats = crawl(
         store,
         _client(args),
+        _filters(args),
         max_pages=args.max_pages,
-        row_count=args.row_count,
         resume=not args.no_resume,
-        Keyword=args.keyword,
-        FromDate=args.from_date,
-        ToDate=args.to_date,
     )
     print(json.dumps(stats, ensure_ascii=False, indent=2))
     print(f"Tổng văn bản trong DB: {store.count()}")
@@ -82,18 +115,14 @@ def main() -> None:
 
     sp = sub.add_parser("probe", help="thử 1 văn bản / 1 trang tìm kiếm")
     sp.add_argument("--item-id")
-    sp.add_argument("--keyword", default="")
-    sp.add_argument("--row-count", type=int, default=20)
     sp.add_argument("--dump-html")
+    _add_filter_args(sp)
     sp.set_defaults(func=cmd_probe)
 
     sc = sub.add_parser("crawl", help="crawl hàng loạt")
-    sc.add_argument("--keyword", default="")
-    sc.add_argument("--from-date", default="", help="dd/mm/yyyy")
-    sc.add_argument("--to-date", default="", help="dd/mm/yyyy")
     sc.add_argument("--max-pages", type=int)
-    sc.add_argument("--row-count", type=int, default=20)
     sc.add_argument("--no-resume", action="store_true")
+    _add_filter_args(sc)
     sc.set_defaults(func=cmd_crawl)
 
     se = sub.add_parser("export", help="xuất JSONL toàn văn")

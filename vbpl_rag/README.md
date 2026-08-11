@@ -31,6 +31,26 @@ python -m vbpl.cli probe --item-id 139264               # thử 1 văn bản
 python -m vbpl.cli probe --keyword "" --dump-html /tmp/search.html   # lưu HTML để soi
 ```
 
+### Bộ lọc
+
+Tất cả tham số lọc nằm trong `SearchFilters` (`vbpl/filters.py`), render ra được
+hai dạng: query-string cho trang HTML (`to_query_params`) và JSON body
+(`to_json_body`, dùng tên trường `keyword / docType / agencyIds / fieldTypeIds /
+effStatus / fromDate / toDate / page / pageSize`). Đổi backend chỉ sửa một chỗ.
+
+```bash
+python -m vbpl.cli crawl \
+  --keyword "đầu tư công" \
+  --doc-type 22 --agency-ids 1,5 --field-type-ids 3 \
+  --eff-status con-hieu-luc \
+  --from-date 01/01/2020 --to-date 31/12/2024 \
+  --row-count 50 --max-pages 10
+```
+
+`--eff-status con-hieu-luc` nên là mặc định khi build RAG. Ngày sai định dạng
+hoặc eff-status không hợp lệ bị chặn ngay lúc dựng bộ lọc, không đợi tới lúc
+request trả về kết quả rỗng khó hiểu.
+
 Crawl → xuất dữ liệu → tạo chunk:
 
 ```bash

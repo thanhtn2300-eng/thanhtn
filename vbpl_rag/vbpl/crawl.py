@@ -6,6 +6,7 @@ import logging
 from urllib.parse import urlencode
 
 from .client import BASE, VbplClient
+from .filters import SearchFilters
 from .parser import Document, parse_fulltext, parse_properties, parse_search_results, parse_total_pages
 from .store import Store
 
@@ -18,12 +19,8 @@ PROPS_PATH = "/TW/Pages/vbpq-thuoctinh.aspx"
 FULLTEXT_PATH = "/TW/Pages/vbpq-toanvan.aspx"
 
 
-def search_url(page: int = 1, row_count: int = 20, **filters) -> str:
-    params = {"dvid": 13, "Page": page, "RowCount": row_count}
-    # Bộ lọc thường dùng: Keyword, type (loại VB), organ (cơ quan),
-    # FromDate / ToDate dạng dd/mm/yyyy.
-    params.update({k: v for k, v in filters.items() if v not in (None, "")})
-    return f"{BASE}{SEARCH_PATH}?{urlencode(params)}"
+def search_url(filters: SearchFilters) -> str:
+    return f"{BASE}{SEARCH_PATH}?{urlencode(filters.to_query_params())}"
 
 
 def fetch_document(client: VbplClient, item_id: str, tieu_de: str = "") -> Document:
@@ -41,22 +38,21 @@ def fetch_document(client: VbplClient, item_id: str, tieu_de: str = "") -> Docum
 def crawl(
     store: Store,
     client: VbplClient,
+    filters: SearchFilters,
     max_pages: int | None = None,
-    row_count: int = 20,
     resume: bool = True,
-    **filters,
 ) -> dict:
     """Crawl theo bộ lọc tìm kiếm. Trả về thống kê."""
     stats = {"pages": 0, "found": 0, "saved": 0, "skipped": 0, "failed": 0}
 
-    first_html = client.get(search_url(1, row_count, **filters)).text
+    first_html = client.get(search_url(filters.at_page(1))).text
     total_pages = parse_total_pages(first_html)
     if max_pages:
         total_pages = min(total_pages, max_pages)
     log.info("Sẽ duyệt %d trang kết quả", total_pages)
 
     for page in range(1, total_pages + 1):
-        html = first_html if page == 1 else client.get(search_url(page, row_count, **filters)).text
+        html = first_html if page == 1 else client.get(search_url(filters.at_page(page))).text
         results = parse_search_results(html)
         stats["pages"] += 1
         stats["found"] += len(results)
