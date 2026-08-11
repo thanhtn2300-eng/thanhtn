@@ -68,13 +68,41 @@ biến (`items/data/results`, `ItemID/id`, `totalCount/total`) và báo rõ kho�
 có trong response nếu không khớp — đổi `VBPL_API_AUTH` là thử được kiểu khác mà
 không phải sửa code.
 
-Crawl → xuất dữ liệu → tạo chunk:
+### Chạy cả pipeline một lượt
 
 ```bash
-python -m vbpl.cli crawl --keyword "đầu tư" --max-pages 5
-python -m vbpl.cli export --out data/documents.jsonl
-python -m vbpl.cli chunk  --out data/chunks.jsonl --max-chars 1800
+python -m vbpl.cli pipeline \
+  --keyword "đầu tư công" --eff-status con-hieu-luc --max-pages 10 \
+  --with-attachments --index-dir data/index
 ```
+
+Tương đương chạy lần lượt:
+
+```bash
+python -m vbpl.cli crawl    --keyword "đầu tư" --max-pages 5   # tải văn bản về SQLite
+python -m vbpl.cli download --out-dir data/files               # tải PDF/DOC đính kèm
+python -m vbpl.cli index    --index-dir data/index             # embed + dựng vector index
+python -m vbpl.cli search   "điều kiện đầu tư kinh doanh"      # truy hồi thử
+python -m vbpl.cli export   --out data/documents.jsonl         # xuất JSONL nếu cần
+```
+
+`download` còn dùng để **vá dữ liệu thiếu**: văn bản nào có toàn văn rỗng hoặc quá
+ngắn (bản scan) thì rút text từ tệp đính kèm để thay vào. Không có bước này, những
+văn bản đó biến mất khỏi RAG.
+
+### Truy hồi
+
+`search` mặc định **chỉ trả về văn bản còn hiệu lực** (`--tinh-trang "con hieu luc"`,
+truyền `""` để bỏ lọc). Bộ lọc chạy *trước* khi xếp hạng top-k, nếu không văn bản
+hết hiệu lực sẽ chiếm slot rồi mới bị loại và kết quả trả về bị thiếu.
+
+Đây không phải chi tiết nhỏ. Test trên dữ liệu mẫu: cùng một câu hỏi, khi bỏ lọc
+thì Luật Đầu tư 2014 (đã hết hiệu lực) xếp **hạng 1**, đẩy Luật Đầu tư 2020 xuống
+hạng 2 — tức là hệ thống sẽ trả lời theo luật đã bị thay thế.
+
+Embedder mặc định là `bkai-foundation-models/vietnamese-bi-encoder`. Chưa cài
+`sentence-transformers` thì tự lùi về `hashing` (chạy được ngay, chất lượng kém —
+chỉ nên dùng để kiểm tra đường ống).
 
 Crawl có **resume**: đã lưu trong SQLite thì bỏ qua, nên cứ Ctrl-C rồi chạy lại.
 Văn bản lỗi được ghi vào bảng `failures` chứ không làm chết cả job.
@@ -104,6 +132,18 @@ theo quy định đã bị thay thế.
 
 ## Trạng thái kiểm thử
 
-Logic parse và chunk đã được test trên HTML mẫu. **Chưa chạy được với vbpl.vn
-thật** vì môi trường tạo repo này chặn outbound tới vbpl.vn — hãy chạy `probe`
-ở máy bạn và báo lại output nếu selector cần chỉnh.
+Đã test: parse HTML (trên HTML mẫu), chunk theo Điều, bộ lọc tìm kiếm, backend
+JSON (trên mock server), embed → index → search có lọc hiệu lực (end-to-end trên
+dữ liệu mẫu).
+
+**Chưa chạy được với vbpl.vn thật** vì môi trường tạo repo này chặn outbound tới
+vbpl.vn. Hai thứ chỉ lộ ra khi chạy máy bạn:
+
+1. **Selector HTML** — chạy `probe --item-id <id>`; nếu `noi_dung` rỗng thì sửa
+   danh sách selector trong `vbpl/parser.py`.
+2. **Tên tham số lọc phía HTML** (`type`, `organ`, `field`, `EffectStatus`) là
+   suy đoán theo quy ước site; `probe` in ra URL đầy đủ để bạn đối chiếu với URL
+   thật trên trình duyệt.
+
+Với `--api`: nếu 401 thì đổi `VBPL_API_AUTH`; nếu schema response không khớp,
+lỗi sẽ in ra đúng danh sách khoá API trả về để map lại trong `vbpl/api.py`.

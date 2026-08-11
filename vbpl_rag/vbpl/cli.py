@@ -51,6 +51,20 @@ def _add_filter_args(parser) -> None:
     parser.add_argument("--row-count", type=int, default=20)
 
 
+def _add_chunk_args(parser) -> None:
+    parser.add_argument("--max-chars", type=int, default=1800)
+    parser.add_argument("--overlap", type=int, default=150)
+
+
+def _add_index_args(parser) -> None:
+    parser.add_argument("--index-dir", default="data/index")
+    parser.add_argument(
+        "--embedder",
+        default="auto",
+        help="'auto' (model tiếng Việt), 'hashing' (không cần tải model), hoặc tên model",
+    )
+
+
 def cmd_probe(args) -> None:
     """Kiểm chứng selector trên HTML thật trước khi crawl hàng loạt."""
     client = _client(args)
@@ -95,6 +109,75 @@ def cmd_crawl(args) -> None:
     )
     print(json.dumps(stats, ensure_ascii=False, indent=2))
     print(f"Tổng văn bản trong DB: {store.count()}")
+
+
+def cmd_download(args) -> None:
+    from .download import download_attachments, extract_text
+
+    store = Store(args.db)
+    client = _client(args)
+    files = filled = 0
+    for doc in store.iter_documents():
+        for path in download_attachments(client, doc, args.out_dir):
+            files += 1
+            # Toàn văn rỗng/quá ngắn thường là văn bản chỉ có bản scan hoặc file đính kèm.
+            if len(doc.get("noi_dung", "")) < args.min_chars:
+                text = extract_text(path)
+                if len(text) > len(doc.get("noi_dung", "")):
+                    doc["noi_dung"] = text
+                    _save_dict(store, doc)
+                    filled += 1
+    print(f"Đã tải {files} tệp, bổ sung nội dung cho {filled} văn bản")
+
+
+def _save_dict(store: Store, doc: dict) -> None:
+    from .parser import Document
+
+    fields = {k: v for k, v in doc.items() if k in Document.__dataclass_fields__}
+    store.save(Document(**fields))
+
+
+def cmd_index(args) -> None:
+    from .index import VectorIndex, get_embedder
+
+    store = Store(args.db)
+    chunks = []
+    for doc in store.iter_documents():
+        chunks.extend(chunk_document(doc, args.max_chars, args.overlap))
+    if not chunks:
+        print("Chưa có dữ liệu để index. Chạy `crawl` trước.")
+        return
+    VectorIndex(args.index_dir).build(chunks, get_embedder(args.embedder))
+    print(f"Đã index {len(chunks)} chunk -> {args.index_dir}")
+
+
+def cmd_search(args) -> None:
+    from .index import VectorIndex, get_embedder
+
+    index = VectorIndex(args.index_dir).load()
+    hits = index.search(
+        args.query,
+        get_embedder(args.embedder),
+        top_k=args.top_k,
+        tinh_trang=args.tinh_trang,
+        loai_van_ban=args.loai_van_ban,
+    )
+    if not hits:
+        print("Không có kết quả khớp bộ lọc.")
+        return
+    for i, hit in enumerate(hits, 1):
+        loc = " ".join(x for x in (hit.get("chuong"), hit.get("muc"), hit.get("dieu")) if x)
+        print(f"\n[{i}] score={hit['score']:.3f}  {hit.get('so_ky_hieu')} — {hit.get('tieu_de')}")
+        print(f"    {loc}  | {hit.get('tinh_trang')}  | {hit.get('url')}")
+        print("    " + hit["text"][:300].replace("\n", " "))
+
+
+def cmd_pipeline(args) -> None:
+    """crawl -> (tuỳ chọn) tải đính kèm -> chunk -> index, chạy một lượt."""
+    cmd_crawl(args)
+    if args.with_attachments:
+        cmd_download(args)
+    cmd_index(args)
 
 
 def cmd_export(args) -> None:
@@ -142,9 +225,38 @@ def main() -> None:
 
     sk = sub.add_parser("chunk", help="tạo chunk cho RAG")
     sk.add_argument("--out", default="data/chunks.jsonl")
-    sk.add_argument("--max-chars", type=int, default=1800)
-    sk.add_argument("--overlap", type=int, default=150)
+    _add_chunk_args(sk)
     sk.set_defaults(func=cmd_chunk)
+
+    sd = sub.add_parser("download", help="tải tệp đính kèm, bổ sung nội dung còn thiếu")
+    sd.add_argument("--out-dir", default="data/files")
+    sd.add_argument("--min-chars", type=int, default=200, help="dưới ngưỡng này thì rút text từ file")
+    sd.set_defaults(func=cmd_download)
+
+    si = sub.add_parser("index", help="embed + dựng vector index")
+    _add_chunk_args(si)
+    _add_index_args(si)
+    si.set_defaults(func=cmd_index)
+
+    ss = sub.add_parser("search", help="truy hồi thử")
+    ss.add_argument("query")
+    ss.add_argument("--top-k", type=int, default=5)
+    ss.add_argument("--tinh-trang", default="con hieu luc", help="'' để bỏ lọc hiệu lực")
+    ss.add_argument("--loai-van-ban", default="")
+    _add_index_args(ss)
+    ss.set_defaults(func=cmd_search)
+
+    spl = sub.add_parser("pipeline", help="crawl -> tải file -> chunk -> index, một lượt")
+    spl.add_argument("--max-pages", type=int)
+    spl.add_argument("--no-resume", action="store_true")
+    spl.add_argument("--api", action="store_true")
+    spl.add_argument("--with-attachments", action="store_true")
+    spl.add_argument("--out-dir", default="data/files")
+    spl.add_argument("--min-chars", type=int, default=200)
+    _add_filter_args(spl)
+    _add_chunk_args(spl)
+    _add_index_args(spl)
+    spl.set_defaults(func=cmd_pipeline)
 
     args = p.parse_args()
     logging.basicConfig(

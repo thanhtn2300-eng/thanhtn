@@ -1,3 +1,9 @@
 requests>=2.31
 beautifulsoup4>=4.12
 lxml>=5.0
+numpy>=1.24
+
+# tuỳ chọn
+sentence-transformers>=2.2   # embedder chất lượng cao (không có thì tự lùi về hashing)
+pypdf>=4.0                   # rút text từ PDF đính kèm
+python-docx>=1.1             # rút text từ DOCX đính kèm
