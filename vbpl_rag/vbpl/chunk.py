@@ -9,9 +9,12 @@ from __future__ import annotations
 
 import re
 
-DIEU_RE = re.compile(r"^\s*(Điều\s+\d+[a-zA-Z]?\s*[.．:-]?)(.*)$", re.M)
-CHUONG_RE = re.compile(r"^\s*(Chương\s+[IVXLCDM\d]+)\b(.*)$", re.M | re.I)
-MUC_RE = re.compile(r"^\s*(Mục\s+\d+)\b(.*)$", re.M | re.I)
+# Cho phép tiền tố Markdown (#, **, >) vì nội dung nay ở dạng Markdown:
+# "### Điều 1." và "**Điều 1.**" phải nhận ra như "Điều 1.".
+_MD = r"^[ \t]*(?:#{1,6}[ \t]*)?(?:[*_]{1,2})?[ \t]*"
+DIEU_RE = re.compile(_MD + r"(Điều\s+\d+[a-zA-Z]?\s*[.．:-]?)(.*)$", re.M)
+CHUONG_RE = re.compile(_MD + r"(Chương\s+[IVXLCDM\d]+)\b(.*)$", re.M | re.I)
+MUC_RE = re.compile(_MD + r"(Mục\s+\d+)\b(.*)$", re.M | re.I)
 
 
 def _headings(text: str, regex: re.Pattern) -> list[tuple[int, str]]:

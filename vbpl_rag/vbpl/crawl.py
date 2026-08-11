@@ -7,7 +7,15 @@ from urllib.parse import urlencode
 
 from .client import BASE, VbplClient
 from .filters import SearchFilters
-from .parser import Document, parse_fulltext, parse_properties, parse_search_results, parse_total_pages
+from .markdown import clean_markdown, html_to_markdown
+from .parser import (
+    Document,
+    parse_detail_json,
+    parse_fulltext,
+    parse_properties,
+    parse_search_results,
+    parse_total_pages,
+)
 from .store import Store
 
 log = logging.getLogger(__name__)
@@ -23,15 +31,31 @@ def search_url(filters: SearchFilters) -> str:
     return f"{BASE}{SEARCH_PATH}?{urlencode(filters.to_query_params())}"
 
 
-def fetch_document(client: VbplClient, item_id: str, tieu_de: str = "") -> Document:
+def _is_json(resp) -> bool:
+    return "json" in (resp.headers.get("Content-Type") or "").lower()
+
+
+def fetch_document(client: VbplClient, item_id: str, tieu_de: str = "", to_md: bool = True) -> Document:
+    """Tải chi tiết một văn bản.
+
+    Thử JSON trước (nhẹ và ổn định hơn), lùi về parse HTML nếu server trả HTML.
+    `to_md=True` chuyển nội dung sang Markdown để giữ heading/bảng cho RAG.
+    """
     doc = Document(item_id=item_id, tieu_de=tieu_de)
     doc.url_toanvan = f"{BASE}{FULLTEXT_PATH}?ItemID={item_id}"
 
-    props_html = client.get(f"{BASE}{PROPS_PATH}?ItemID={item_id}").text
-    parse_properties(props_html, doc)
+    fulltext_resp = client.get(doc.url_toanvan, headers={"Accept": "application/json, text/html"})
 
-    fulltext_html = client.get(doc.url_toanvan).text
-    parse_fulltext(fulltext_html, doc)
+    if _is_json(fulltext_resp):
+        parse_detail_json(fulltext_resp.json(), doc)
+    else:
+        parse_properties(client.get(f"{BASE}{PROPS_PATH}?ItemID={item_id}").text, doc)
+        parse_fulltext(fulltext_resp.text, doc, keep_html=to_md)
+
+    if to_md and doc.noi_dung:
+        doc.noi_dung = (
+            html_to_markdown(doc.noi_dung) if doc.noi_dung_is_html else clean_markdown(doc.noi_dung)
+        )
     return doc
 
 

@@ -64,7 +64,12 @@ class Document:
     tep_dinh_kem: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict:
-        return asdict(self)
+        data = asdict(self)
+        data.pop("noi_dung_is_html", None)  # cờ tạm trong lúc parse, không lưu vào DB
+        return data
+
+    # Đánh dấu nội dung còn ở dạng HTML để tầng trên quyết định có chuyển Markdown không.
+    noi_dung_is_html: bool = False
 
 
 def parse_search_results(html: str) -> list[dict]:
@@ -133,7 +138,74 @@ def parse_properties(html: str, doc: Document) -> Document:
     return doc
 
 
-def parse_fulltext(html: str, doc: Document) -> Document:
+# Tên trường hay gặp trong response JSON của trang chi tiết.
+JSON_FIELD_KEYS = {
+    "tieu_de": ("title", "Title", "tieuDe", "TieuDe", "name"),
+    "so_ky_hieu": ("soKyHieu", "SoKyHieu", "code", "symbol", "documentNumber"),
+    "ngay_ban_hanh": ("ngayBanHanh", "NgayBanHanh", "issuedDate", "promulgationDate"),
+    "loai_van_ban": ("loaiVanBan", "LoaiVanBan", "docType", "documentType"),
+    "co_quan_ban_hanh": ("coQuanBanHanh", "CoQuanBanHanh", "agency", "organ"),
+    "nguoi_ky": ("nguoiKy", "NguoiKy", "signer"),
+    "ngay_hieu_luc": ("ngayHieuLuc", "NgayHieuLuc", "effectiveDate"),
+    "ngay_het_hieu_luc": ("ngayHetHieuLuc", "expiredDate", "expiryDate"),
+    "tinh_trang": ("tinhTrang", "TinhTrang", "effStatus", "status", "effectStatus"),
+    "trich_yeu": ("trichYeu", "TrichYeu", "summary", "abstract"),
+    "linh_vuc": ("linhVuc", "LinhVuc", "fieldType", "field"),
+}
+JSON_CONTENT_KEYS = ("content", "Content", "noiDung", "NoiDung", "fullText", "body", "html")
+JSON_FILE_KEYS = ("files", "attachments", "tepDinhKem", "fileUrl", "attachmentUrl")
+
+
+def parse_detail_json(payload: dict, doc: Document) -> Document:
+    """Đọc response JSON của trang chi tiết.
+
+    Tên trường chưa xác minh được với API thật nên thử lần lượt các biến thể
+    thường gặp; trường nào không khớp thì để trống chứ không ném lỗi.
+    """
+    # Nội dung thật có thể nằm trong một tầng bọc: {"data": {...}} / {"result": {...}}
+    for wrapper in ("data", "Data", "result", "Result", "item", "document"):
+        inner = payload.get(wrapper)
+        if isinstance(inner, dict):
+            payload = {**payload, **inner}
+            break
+
+    for field_name, candidates in JSON_FIELD_KEYS.items():
+        if getattr(doc, field_name):
+            continue
+        for key in candidates:
+            value = payload.get(key)
+            if isinstance(value, dict):  # {"id": 1, "name": "Luật"}
+                value = value.get("name") or value.get("Name") or value.get("text")
+            if value not in (None, "", []):
+                setattr(doc, field_name, _clean(str(value)))
+                break
+
+    for key in JSON_CONTENT_KEYS:
+        raw = payload.get(key)
+        if isinstance(raw, str) and raw.strip():
+            # Nội dung thường là HTML nhúng trong JSON, không phải text thuần.
+            doc.noi_dung = raw if "<" not in raw else raw
+            doc.noi_dung_is_html = "<" in raw
+            break
+
+    files: list[str] = []
+    for key in JSON_FILE_KEYS:
+        value = payload.get(key)
+        if isinstance(value, str):
+            files.append(value)
+        elif isinstance(value, list):
+            for entry in value:
+                if isinstance(entry, str):
+                    files.append(entry)
+                elif isinstance(entry, dict):
+                    url = entry.get("url") or entry.get("Url") or entry.get("path")
+                    if url:
+                        files.append(str(url))
+    doc.tep_dinh_kem = sorted(set(doc.tep_dinh_kem) | set(files))
+    return doc
+
+
+def parse_fulltext(html: str, doc: Document, keep_html: bool = False) -> Document:
     """Đọc trang vbpq-toanvan.aspx: lấy nội dung + link tệp đính kèm."""
     soup = BeautifulSoup(html, "html.parser")
 
@@ -158,8 +230,13 @@ def parse_fulltext(html: str, doc: Document) -> Document:
         container = max(divs, key=lambda d: len(d.get_text()), default=None)
 
     if container is not None:
-        lines = [_clean(l) for l in container.get_text("\n").split("\n")]
-        doc.noi_dung = re.sub(r"\n{3,}", "\n\n", "\n".join(l for l in lines if l))
+        if keep_html:
+            # Giữ HTML để tầng trên chuyển sang Markdown — rút text ở đây sẽ mất bảng biểu.
+            doc.noi_dung = str(container)
+            doc.noi_dung_is_html = True
+        else:
+            lines = [_clean(l) for l in container.get_text("\n").split("\n")]
+            doc.noi_dung = re.sub(r"\n{3,}", "\n\n", "\n".join(l for l in lines if l))
 
     for a in soup.select("a[href]"):
         href = a["href"]

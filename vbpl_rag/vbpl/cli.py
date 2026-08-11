@@ -112,7 +112,8 @@ def cmd_crawl(args) -> None:
 
 
 def cmd_download(args) -> None:
-    from .download import download_attachments, extract_text
+    from .download import download_attachments
+    from .markdown import file_to_markdown
 
     store = Store(args.db)
     client = _client(args)
@@ -122,7 +123,7 @@ def cmd_download(args) -> None:
             files += 1
             # Toàn văn rỗng/quá ngắn thường là văn bản chỉ có bản scan hoặc file đính kèm.
             if len(doc.get("noi_dung", "")) < args.min_chars:
-                text = extract_text(path)
+                text = file_to_markdown(path)
                 if len(text) > len(doc.get("noi_dung", "")):
                     doc["noi_dung"] = text
                     _save_dict(store, doc)

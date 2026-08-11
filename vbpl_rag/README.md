@@ -90,6 +90,27 @@ python -m vbpl.cli export   --out data/documents.jsonl         # xuất JSONL n�
 ngắn (bản scan) thì rút text từ tệp đính kèm để thay vào. Không có bước này, những
 văn bản đó biến mất khỏi RAG.
 
+### Nội dung ở dạng Markdown
+
+`fetch_document` **thử JSON trước** (gửi `Accept: application/json`), lùi về parse
+HTML nếu server trả HTML — nên không cần biết trước site trả kiểu gì.
+
+Nội dung luôn được chuyển sang **Markdown**, không phải text phẳng:
+
+- JSON/HTML từ web → `markdownify`
+- PDF/DOCX đính kèm → `markitdown`
+
+Lý do: text phẳng làm **nát bảng biểu** (biểu phí, phụ lục, danh mục) — mất bảng
+là mất luôn khả năng trả lời đúng những câu hỏi về mức phí, hạn mức, danh mục.
+Đã kiểm chứng: cùng một bảng HTML, đường text phẳng cho ra `STT / Mức phí / 1 /
+500.000đ` rời rạc, còn đường Markdown giữ nguyên `| STT | Mức phí |`.
+
+Chunker nhận diện `Điều` kể cả khi nó là heading Markdown (`### Điều 1.`,
+`**Điều 1.**`) hay text thuần.
+
+Thiếu `markdownify`/`markitdown` thì vẫn chạy được (tự lùi về rút text thô) nhưng
+mất bảng — log sẽ cảnh báo một lần.
+
 ### Truy hồi
 
 `search` mặc định **chỉ trả về văn bản còn hiệu lực** (`--tinh-trang "con hieu luc"`,
