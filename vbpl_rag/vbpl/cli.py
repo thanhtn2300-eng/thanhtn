@@ -68,6 +68,27 @@ def _add_index_args(parser) -> None:
 def cmd_probe(args) -> None:
     """Kiểm chứng selector trên HTML thật trước khi crawl hàng loạt."""
     client = _client(args)
+    if args.item_id and args.raw:
+        # Cho biết server thực sự trả về gì, trước khi bàn tới chuyện parse thế nào.
+        from .crawl import BASE, FULLTEXT_PATH
+
+        url = f"{BASE}{FULLTEXT_PATH}?ItemID={args.item_id}"
+        resp = client.get(url, headers={"Accept": "application/json, text/html"})
+        ctype = resp.headers.get("Content-Type", "?")
+        print(f"URL          : {url}")
+        print(f"HTTP         : {resp.status_code}")
+        print(f"Content-Type : {ctype}")
+        print(f"Kích thước   : {len(resp.content)} bytes")
+        if "json" in ctype.lower():
+            payload = resp.json()
+            keys = list(payload) if isinstance(payload, dict) else f"list[{len(payload)}]"
+            print(f"=> JSON. Khoá gốc: {keys}")
+            print(json.dumps(payload, ensure_ascii=False, indent=2)[: args.head])
+        else:
+            print("=> Không phải JSON, sẽ đi đường parse HTML.")
+            print(resp.text[: args.head])
+        return
+
     if args.item_id:
         doc = fetch_document(client, args.item_id)
         data = doc.to_dict()
@@ -210,6 +231,8 @@ def main() -> None:
     sp = sub.add_parser("probe", help="thử 1 văn bản / 1 trang tìm kiếm")
     sp.add_argument("--item-id")
     sp.add_argument("--dump-html")
+    sp.add_argument("--raw", action="store_true", help="in thẳng response gốc của trang chi tiết")
+    sp.add_argument("--head", type=int, default=1500, help="số ký tự response in ra")
     _add_filter_args(sp)
     sp.set_defaults(func=cmd_probe)
 
