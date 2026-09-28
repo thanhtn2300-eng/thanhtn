@@ -92,10 +92,10 @@ cd vneid_campaign
 python -m unittest discover -s tests -v
 ```
 
-Bộ test (không cần mạng, Zalo được giả lập) bao gồm: xác thực chữ ký webhook, ảnh
-đầu/ảnh sau nhận lời trả khác nhau, webhook gửi lặp không bị đếm hay cảm ơn hai lần,
-nhiều ảnh trong một tin, link ảnh hỏng vẫn giữ bản ghi, thống kê đếm theo người, từ
-khoá tiếng Việt có/không dấu, xuất CSV, và chạy qua HTTP thật từ đầu đến cuối.
+Đã test (không cần mạng, Zalo được giả lập): xác thực chữ ký webhook, ảnh đầu/ảnh
+sau nhận lời trả khác nhau, webhook gửi lặp không bị đếm hay cảm ơn hai lần, nhiều
+ảnh trong một tin, link ảnh hỏng vẫn giữ bản ghi, thống kê đếm theo người, từ khoá
+tiếng Việt có/không dấu, xuất CSV, và chạy qua HTTP thật từ đầu đến cuối.
 
 **Chưa chạy với Tammi OA thật** vì môi trường tạo repo này không có tài khoản Zalo.
 Ba thứ cần kiểm tra khi thử lần đầu:
