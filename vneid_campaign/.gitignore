@@ -1,0 +1,6 @@
+# ảnh người dân gửi, SQLite và token — dữ liệu cá nhân, không commit
+data/
+*.sqlite3
+tokens.json
+bao_cao*.csv
+__pycache__/
